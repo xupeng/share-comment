@@ -8,6 +8,7 @@ const script = require("../share-comment.user.js");
 
 const USERSCRIPT_PATH = path.join(__dirname, "..", "share-comment.user.js");
 const INSTALL_URL = "https://raw.githubusercontent.com/xupeng/share-comment/master/share-comment.user.js";
+const SCRIPT_NAME = "分享小组回复";
 
 function readUserscriptSource() {
   return fs.readFileSync(USERSCRIPT_PATH, "utf8");
@@ -76,10 +77,11 @@ test("recognizes Douban group topic URLs only", () => {
   assert.equal(script.isDoubanGroupTopicUrl("https://www.douban.com/group/blabla/"), false);
 });
 
-test("declares install and update URLs in userscript metadata", () => {
+test("declares userscript metadata for installation and updates", () => {
   const source = readUserscriptSource();
 
-  assert.match(source, /^\/\/ @version\s+0\.1\.10$/m);
+  assert.match(source, new RegExp(`^// @name\\s+${SCRIPT_NAME}$`, "m"));
+  assert.match(source, /^\/\/ @version\s+0\.1\.11$/m);
   assert.match(source, new RegExp(`^// @downloadURL\\s+${INSTALL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
   assert.match(source, new RegExp(`^// @updateURL\\s+${INSTALL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
 });

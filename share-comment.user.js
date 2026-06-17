@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Douban Group Reply Image Broadcaster
+// @name         分享小组回复
 // @namespace    https://github.com/xupeng/share-comment
-// @version      0.1.10
+// @version      0.1.11
 // @description  Share a single Douban group topic reply as an image for a personal broadcast.
 // @author       xupeng
 // @homepageURL  https://github.com/xupeng/share-comment

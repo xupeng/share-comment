@@ -21,12 +21,21 @@ function createTopicDom() {
                   <span class="pubtime">2026-06-17 13:00:00</span>
                 </h4>
                 <div class="reply-content">
-                  <p>这是一条值得分享的回应。</p>
+                  <p>这是一条值得分享的回应，主题比 <a href="https://book.douban.com/subject/36600000/">在世与认知</a> 更接地气。</p>
                   <p><strong>给出理由，并接受理由的检验。</strong></p>
                   <ul>
                     <li>说理 ≠ 说服。说服可以用修辞，情感，权威，说理只认论证质量</li>
                     <li>说理 ≠ 解释。解释可以只讲因果，说理必须讲凭什么该信你</li>
                   </ul>
+                  <table>
+                    <thead>
+                      <tr><th>概念</th><th>说明</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>说理</td><td>接受检验</td></tr>
+                      <tr><td><a href="https://example.com/science">科学</a></td><td>不是万能 | 但有边界</td></tr>
+                    </tbody>
+                  </table>
                   <p>这跟你一直看重的那几样东西是一回事。</p>
                   <img src="https://img1.doubanio.com/view/group_topic/l/public/test.jpg" alt="回复图片">
                 </div>
@@ -82,10 +91,11 @@ test("finds reply items and injects one share button per reply", () => {
   assert.equal(firstCount, 2);
   assert.equal(secondCount, 0);
   assert.equal(document.querySelectorAll(".sc-share-reply-button").length, 2);
+  assert.equal(document.querySelectorAll(".sc-copy-reply-button").length, 2);
   assert.equal(document.querySelector("#comment-101 .sc-share-reply-button").textContent, "分享为图片");
 });
 
-test("places the share button after the operation row in the reply body", () => {
+test("places the share and copy controls after the operation row in the reply body", () => {
   const dom = createTopicDom();
   const document = dom.window.document;
 
@@ -97,11 +107,11 @@ test("places the share button after the operation row in the reply body", () => 
   const styleText = document.querySelector("#sc-share-comment-style").textContent;
 
   assert.equal(operation.querySelector(".sc-share-reply-button"), null);
-  assert.equal(directChildren.at(-1).className, "sc-share-reply-button");
-  assert.equal(directChildren.at(-1).textContent, "分享为图片");
-  assert.match(styleText, /\.sc-share-reply-button \{[\s\S]*color: #337a2c;/);
-  assert.match(styleText, /\.sc-share-reply-button \{[\s\S]*background: transparent;/);
-  assert.match(styleText, /\.sc-share-reply-button \{[\s\S]*border: 0;/);
+  assert.equal(directChildren.at(-1).className, "sc-share-reply-actions");
+  assert.equal(directChildren.at(-1).textContent.trim().replace(/\s+/g, " "), "分享为图片 | 复制");
+  assert.match(styleText, /\.sc-share-reply-button,\s*\.sc-copy-reply-button \{[\s\S]*color: #337a2c;/);
+  assert.match(styleText, /\.sc-share-reply-button,\s*\.sc-copy-reply-button \{[\s\S]*background: transparent;/);
+  assert.match(styleText, /\.sc-share-reply-button,\s*\.sc-copy-reply-button \{[\s\S]*border: 0;/);
 });
 
 test("builds a clean share card with author, content, topic title, and source URL", () => {
@@ -113,13 +123,40 @@ test("builds a clean share card with author, content, topic title, and source UR
   const card = script.buildShareCard(document, reply, topicInfo);
 
   assert.match(card.textContent, /Alice/);
-  assert.match(card.textContent, /这是一条值得分享的回应。/);
+  assert.match(card.textContent, /这是一条值得分享的回应/);
   assert.equal((card.textContent.match(/给出理由，并接受理由的检验。/g) || []).length, 1);
   assert.equal((card.textContent.match(/说理 ≠ 说服/g) || []).length, 1);
   assert.equal((card.textContent.match(/这跟你一直看重的那几样东西是一回事。/g) || []).length, 1);
   assert.match(card.textContent, /一个小组讨论标题/);
   assert.match(card.textContent, /douban.com\/group\/topic\/490000001/);
   assert.equal(card.querySelectorAll(".sc-share-reply-button").length, 0);
+});
+
+test("copies reply content as markdown text", async () => {
+  const dom = createTopicDom();
+  const document = dom.window.document;
+  const reply = document.querySelector("#comment-101");
+  let copiedText = "";
+
+  dom.window.navigator.clipboard = {
+    writeText: async (text) => {
+      copiedText = text;
+    },
+  };
+
+  const message = await script.copyReplyMarkdown(dom.window, reply);
+
+  assert.equal(message, "已复制 Markdown。");
+  assert.match(copiedText, /主题比 \[在世与认知\]\(https:\/\/book\.douban\.com\/subject\/36600000\/\) 更接地气。/);
+  assert.match(copiedText, /\*\*给出理由，并接受理由的检验。\*\*/);
+  assert.match(copiedText, /- 说理 ≠ 说服。说服可以用修辞，情感，权威，说理只认论证质量/);
+  assert.ok(
+    copiedText.includes(
+      "| 概念 | 说明 |\n| --- | --- |\n| 说理 | 接受检验 |\n| [科学](https://example.com/science) | 不是万能 \\| 但有边界 |",
+    ),
+  );
+  assert.match(copiedText, /回复里有图片：回复图片/);
+  assert.doesNotMatch(copiedText, /<strong>/);
 });
 
 test("builds a self-contained share card without remote images", () => {

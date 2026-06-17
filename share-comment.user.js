@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Douban Group Reply Image Broadcaster
 // @namespace    https://github.com/xupeng/share-comment
-// @version      0.1.8
+// @version      0.1.9
 // @description  Share a single Douban group topic reply as an image for a personal broadcast.
 // @author       xupeng
 // @match        https://www.douban.com/group/topic/*
@@ -30,6 +30,9 @@
   "use strict";
 
   const BUTTON_CLASS = "sc-share-reply-button";
+  const COPY_BUTTON_CLASS = "sc-copy-reply-button";
+  const ACTIONS_CLASS = "sc-share-reply-actions";
+  const SEPARATOR_CLASS = "sc-share-reply-separator";
   const INJECTED_ATTR = "data-sc-share-reply-injected";
   const STYLE_ID = "sc-share-comment-style";
   const STAGE_ID = "sc-share-comment-stage";
@@ -69,21 +72,31 @@
   ];
 
   const STYLE_TEXT = `
-    .${BUTTON_CLASS} {
+    .${ACTIONS_CLASS} {
+      display: inline-block;
+      margin-top: 8px;
+    }
+    .${BUTTON_CLASS},
+    .${COPY_BUTTON_CLASS} {
       appearance: none;
       background: transparent;
       border: 0;
       color: #337a2c;
       cursor: pointer;
       font: inherit;
-      margin: 0 10px 0 0;
+      margin: 0;
       padding: 0;
       vertical-align: baseline;
     }
-    .${BUTTON_CLASS}:hover {
+    .${BUTTON_CLASS}:hover,
+    .${COPY_BUTTON_CLASS}:hover {
       background: transparent;
       color: #2f7d32;
       text-decoration: underline;
+    }
+    .${SEPARATOR_CLASS} {
+      color: #aaa;
+      margin: 0 6px;
     }
     .sc-share-overlay {
       align-items: center;
@@ -319,13 +332,25 @@
     return firstMatching(replyElement, ACTION_SELECTORS) || replyElement;
   }
 
-  function insertShareButton(replyElement, button) {
+  function insertShareActions(replyElement, shareButton, copyButton) {
     const actionContainer = findActionContainer(replyElement);
-    actionContainer.appendChild(button);
+    const document = actionContainer.ownerDocument;
+    const actions = document.createElement("span");
+    actions.className = ACTIONS_CLASS;
+
+    const separator = document.createElement("span");
+    separator.className = SEPARATOR_CLASS;
+    separator.textContent = " | ";
+
+    actions.appendChild(shareButton);
+    actions.appendChild(separator);
+    actions.appendChild(copyButton);
+    actionContainer.appendChild(actions);
   }
 
-  function injectShareButtons(document, onShare) {
+  function injectShareButtons(document, onShare, runtimeRoot) {
     let injected = 0;
+    const currentRoot = runtimeRoot || document.defaultView || root;
 
     for (const reply of findReplyItems(document)) {
       if (reply.getAttribute(INJECTED_ATTR) === "1" || reply.querySelector(`.${BUTTON_CLASS}`)) {
@@ -342,7 +367,22 @@
         onShare(reply);
       });
 
-      insertShareButton(reply, button);
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.className = COPY_BUTTON_CLASS;
+      copyButton.textContent = "复制";
+      copyButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          const message = await copyReplyMarkdown(currentRoot, reply);
+          notify(currentRoot, message);
+        } catch (error) {
+          notify(currentRoot, `复制失败：${error && error.message ? error.message : String(error)}`);
+        }
+      });
+
+      insertShareActions(reply, button, copyButton);
       reply.setAttribute(INJECTED_ATTR, "1");
       injected += 1;
     }
@@ -471,6 +511,155 @@
     return card;
   }
 
+  function escapeMarkdownText(value) {
+    return String(value || "")
+      .replace(/\\/g, "\\\\")
+      .replace(/([`*_{}\[\]<>#])/g, "\\$1");
+  }
+
+  function escapeMarkdownUrl(value) {
+    return String(value || "").replace(/\s+/g, "%20").replace(/\)/g, "%29");
+  }
+
+  function normalizeMarkdownLine(value) {
+    return String(value || "")
+      .replace(/[ \t]+/g, " ")
+      .replace(/ *\n */g, "\n")
+      .trim();
+  }
+
+  function childInlineMarkdown(node) {
+    return normalizeMarkdownLine(Array.from(node.childNodes).map(inlineMarkdown).join(""));
+  }
+
+  function imagePlaceholderMarkdown(node) {
+    const textNode = Array.from(node.childNodes).find((child) => child.nodeType === 3);
+    const label = normalizeMarkdownLine(textNode && textNode.textContent);
+    const urlNode = node.querySelector(".sc-share-card-image-url");
+    const url = normalizeMarkdownLine(urlNode && urlNode.textContent);
+    return [label, url].filter(Boolean).join("\n");
+  }
+
+  function inlineMarkdown(node) {
+    if (!node) return "";
+    if (node.nodeType === 3) return escapeMarkdownText(String(node.textContent || "").replace(/\s+/g, " "));
+    if (node.nodeType !== 1) return "";
+
+    const tagName = node.tagName.toLowerCase();
+    if (tagName === "br") return "\n";
+    if (tagName === "strong" || tagName === "b") return `**${childInlineMarkdown(node)}**`;
+    if (tagName === "em" || tagName === "i") return `*${childInlineMarkdown(node)}*`;
+    if (tagName === "code") return `\`${String(node.textContent || "").replace(/`/g, "\\`")}\``;
+    if (tagName === "a") {
+      const text = childInlineMarkdown(node) || escapeMarkdownText(node.href || node.getAttribute("href") || "");
+      const href = normalizeText(node.href || node.getAttribute("href"));
+      return href ? `[${text}](${escapeMarkdownUrl(href)})` : text;
+    }
+    return Array.from(node.childNodes).map(inlineMarkdown).join("");
+  }
+
+  function listItemMarkdown(item) {
+    const inlineParts = [];
+    const nestedLists = [];
+
+    for (const child of item.childNodes) {
+      if (child.nodeType === 1 && ["ul", "ol"].includes(child.tagName.toLowerCase())) {
+        nestedLists.push(blockMarkdown(child).split("\n").map((line) => `  ${line}`).join("\n"));
+      } else {
+        inlineParts.push(inlineMarkdown(child));
+      }
+    }
+
+    return [normalizeMarkdownLine(inlineParts.join("")), ...nestedLists].filter(Boolean).join("\n");
+  }
+
+  function tableCellMarkdown(cell) {
+    return normalizeMarkdownLine(childBlockMarkdown(cell) || childInlineMarkdown(cell))
+      .replace(/\n+/g, "<br>")
+      .replace(/\|/g, "\\|");
+  }
+
+  function markdownTableRow(cells, columnCount) {
+    const normalizedCells = cells.slice(0, columnCount);
+    while (normalizedCells.length < columnCount) normalizedCells.push("");
+    return `| ${normalizedCells.join(" | ")} |`;
+  }
+
+  function tableMarkdown(table) {
+    const rows = Array.from(table.querySelectorAll("tr"))
+      .map((row) => ({
+        cells: Array.from(row.children)
+          .filter((cell) => ["td", "th"].includes(cell.tagName.toLowerCase()))
+          .map(tableCellMarkdown),
+      }))
+      .filter((row) => row.cells.length > 0);
+
+    if (!rows.length) return "";
+
+    const columnCount = Math.max(...rows.map((row) => row.cells.length));
+    const [header, ...bodyRows] = rows;
+    const separator = Array.from({ length: columnCount }, () => "---");
+
+    return [
+      markdownTableRow(header.cells, columnCount),
+      markdownTableRow(separator, columnCount),
+      ...bodyRows.map((row) => markdownTableRow(row.cells, columnCount)),
+    ].join("\n");
+  }
+
+  function childBlockMarkdown(node) {
+    return Array.from(node.childNodes)
+      .map(blockMarkdown)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  function blockMarkdown(node) {
+    if (!node) return "";
+    if (node.nodeType === 3) return normalizeMarkdownLine(escapeMarkdownText(node.textContent));
+    if (node.nodeType !== 1) return "";
+
+    const tagName = node.tagName.toLowerCase();
+    if (["a", "strong", "b", "em", "i", "code", "span"].includes(tagName)) return inlineMarkdown(node);
+    if (tagName === "table") return tableMarkdown(node);
+    if (node.classList && node.classList.contains("sc-share-card-image-placeholder")) {
+      return imagePlaceholderMarkdown(node);
+    }
+    if (tagName === "p") return childInlineMarkdown(node);
+    if (tagName === "br") return "";
+    if (tagName === "ul") {
+      return Array.from(node.children)
+        .filter((child) => child.tagName.toLowerCase() === "li")
+        .map((child) => `- ${listItemMarkdown(child)}`)
+        .join("\n");
+    }
+    if (tagName === "ol") {
+      return Array.from(node.children)
+        .filter((child) => child.tagName.toLowerCase() === "li")
+        .map((child, index) => `${index + 1}. ${listItemMarkdown(child)}`)
+        .join("\n");
+    }
+    if (tagName === "li") return `- ${listItemMarkdown(node)}`;
+    if (tagName === "blockquote") {
+      return childBlockMarkdown(node)
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+    }
+    if (tagName === "pre") return `\`\`\`\n${String(node.textContent || "").trim()}\n\`\`\``;
+    if (/^h[1-6]$/.test(tagName)) {
+      return `${"#".repeat(Number(tagName.slice(1)))} ${childInlineMarkdown(node)}`;
+    }
+
+    return childBlockMarkdown(node) || childInlineMarkdown(node);
+  }
+
+  function buildReplyMarkdown(document, replyElement) {
+    const content = cloneReplyContent(document, replyElement);
+    return blockMarkdown(content) || normalizeText(replyElement.textContent);
+  }
+
   function getGmApi(runtimeRoot) {
     return (runtimeRoot && runtimeRoot.GM) || {};
   }
@@ -591,6 +780,33 @@
     }
 
     throw new Error("当前浏览器不支持复制图片，请使用下载按钮保存 PNG。");
+  }
+
+  async function copyReplyMarkdown(runtimeRoot, replyElement) {
+    const document = replyElement.ownerDocument;
+    const markdown = buildReplyMarkdown(document, replyElement);
+
+    if (
+      runtimeRoot.navigator &&
+      runtimeRoot.navigator.clipboard &&
+      typeof runtimeRoot.navigator.clipboard.writeText === "function"
+    ) {
+      await runtimeRoot.navigator.clipboard.writeText(markdown);
+      return "已复制 Markdown。";
+    }
+
+    if (typeof runtimeRoot.GM_setClipboard === "function") {
+      runtimeRoot.GM_setClipboard(markdown, "text");
+      return "已复制 Markdown。";
+    }
+
+    const gm = getGmApi(runtimeRoot);
+    if (gm && typeof gm.setClipboard === "function") {
+      await gm.setClipboard(markdown, "text");
+      return "已复制 Markdown。";
+    }
+
+    throw new Error("当前浏览器不支持剪贴板写入。");
   }
 
   function sanitizeFilename(value) {
@@ -751,10 +967,10 @@
     }
 
     ensureStyle(runtimeRoot.document, runtimeRoot);
-    injectShareButtons(runtimeRoot.document, (reply) => openShareDialog(runtimeRoot, reply));
+    injectShareButtons(runtimeRoot.document, (reply) => openShareDialog(runtimeRoot, reply), runtimeRoot);
 
     const observer = new runtimeRoot.MutationObserver(() => {
-      injectShareButtons(runtimeRoot.document, (reply) => openShareDialog(runtimeRoot, reply));
+      injectShareButtons(runtimeRoot.document, (reply) => openShareDialog(runtimeRoot, reply), runtimeRoot);
     });
     observer.observe(runtimeRoot.document.body, { childList: true, subtree: true });
 
@@ -763,9 +979,12 @@
 
   return {
     BUTTON_CLASS,
+    COPY_BUTTON_CLASS,
     CONTENT_SELECTORS,
     REPLY_SELECTORS,
+    buildReplyMarkdown,
     buildShareCard,
+    copyReplyMarkdown,
     findReplyItems,
     getTopicInfo,
     injectShareButtons,

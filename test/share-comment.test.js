@@ -1,8 +1,17 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 const { JSDOM } = require("jsdom");
 
 const script = require("../share-comment.user.js");
+
+const USERSCRIPT_PATH = path.join(__dirname, "..", "share-comment.user.js");
+const INSTALL_URL = "https://raw.githubusercontent.com/xupeng/share-comment/master/share-comment.user.js";
+
+function readUserscriptSource() {
+  return fs.readFileSync(USERSCRIPT_PATH, "utf8");
+}
 
 function createTopicDom() {
   return new JSDOM(
@@ -65,6 +74,14 @@ test("recognizes Douban group topic URLs only", () => {
   assert.equal(script.isDoubanGroupTopicUrl("https://www.douban.com/group/topic/490000001/?start=100"), true);
   assert.equal(script.isDoubanGroupTopicUrl("https://m.douban.com/group/topic/490000001/"), true);
   assert.equal(script.isDoubanGroupTopicUrl("https://www.douban.com/group/blabla/"), false);
+});
+
+test("declares install and update URLs in userscript metadata", () => {
+  const source = readUserscriptSource();
+
+  assert.match(source, /^\/\/ @version\s+0\.1\.10$/m);
+  assert.match(source, new RegExp(`^// @downloadURL\\s+${INSTALL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
+  assert.match(source, new RegExp(`^// @updateURL\\s+${INSTALL_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
 });
 
 test("extracts stable topic info from a topic page", () => {

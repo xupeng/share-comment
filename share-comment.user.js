@@ -1,9 +1,13 @@
 // ==UserScript==
 // @name         Douban Group Reply Image Broadcaster
 // @namespace    https://github.com/xupeng/share-comment
-// @version      0.1.9
+// @version      0.1.10
 // @description  Share a single Douban group topic reply as an image for a personal broadcast.
 // @author       xupeng
+// @homepageURL  https://github.com/xupeng/share-comment
+// @supportURL   https://github.com/xupeng/share-comment/issues
+// @downloadURL  https://raw.githubusercontent.com/xupeng/share-comment/master/share-comment.user.js
+// @updateURL    https://raw.githubusercontent.com/xupeng/share-comment/master/share-comment.user.js
 // @match        https://www.douban.com/group/topic/*
 // @match        https://m.douban.com/group/topic/*
 // @require      https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js

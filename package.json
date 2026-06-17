@@ -1,0 +1,12 @@
+{
+  "name": "share-comment",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Greasemonkey script for sharing a Douban group reply as an image broadcast.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}
